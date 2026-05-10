@@ -2,6 +2,7 @@
  * Reader Page v2 — All native foliate-js features, no TTS
  * Auto text direction from EPUB, overridable. Paginated/scrolled switch.
  */
+import { Capacitor } from '@capacitor/core';
 import bookStorage from '../services/BookStorage.js';
 import settingsService from '../services/SettingsService.js';
 import router from '../utils/router.js';
@@ -11,12 +12,13 @@ import { escapeHtml } from '../utils/helpers.js';
 import { showBookmarkList } from '../components/BookmarkList.js';
 import {
   injectContentHooks, injectFurigana, forEachIframeDoc,
-  applyStyles, getLookupMode, setLookupMode
+  applyStyles, getLookupMode, setLookupMode, lookupCurrentSelection
 } from './ReaderHelpers.js';
 import 'foliate-js/view.js';
 
 let currentBook = null, foliateView = null, epubBook = null;
 let controlsVisible = true, keyHandler = null, activeContentDoc = null;
+const isAndroidRuntime = Capacitor.getPlatform?.() === 'android';
 const keyboardDocs = new Set();
 let sliderDragging = false, sliderCommitTimer = null;
 
@@ -25,7 +27,7 @@ export async function renderReaderPage(container, params) {
   setBottomNavVisible(false);
 
   const el = document.createElement('div');
-  el.className = 'reader-page';
+  el.className = `reader-page${isAndroidRuntime ? ' android-runtime' : ''}`;
   el.innerHTML = `
     <div class="r-top" id="r-top">
       <div class="r-top-l">
@@ -63,6 +65,7 @@ export async function renderReaderPage(container, params) {
       <input type="text" id="s-input" placeholder="Search in book…"/>
       <button class="btn-icon" id="s-close">${icon('x')}</button>
     </div>
+    ${isAndroidRuntime ? '<button class="r-lookup-cta hide" id="lookup-selection-btn" type="button">Lookup selection</button>' : ''}
     <div class="r-search-results hide" id="s-results"></div>`;
   container.appendChild(el);
 
@@ -126,12 +129,27 @@ export async function renderReaderPage(container, params) {
     }
   };
 
+  const lookupSelectionBtn = document.getElementById('lookup-selection-btn');
+  const updateLookupSelectionButton = (event) => {
+    if (!lookupSelectionBtn) return;
+    const show = !!event.detail?.hasSelection && getLookupMode();
+    lookupSelectionBtn.classList.toggle('hide', !show);
+  };
+  if (lookupSelectionBtn) {
+    lookupSelectionBtn.onclick = (e) => {
+      e.stopPropagation();
+      if (!lookupCurrentSelection()) lookupSelectionBtn.classList.add('hide');
+    };
+    window.addEventListener('reader:lookup-selection', updateLookupSelectionButton);
+  }
+
   // Lookup toggle
   document.getElementById('btn-lk').onclick = () => {
     const on = !getLookupMode();
     setLookupMode(on);
     document.getElementById('btn-lk').classList.toggle('on', on);
     document.querySelector('.reader-page')?.classList.toggle('lookup-mode', on);
+    lookupSelectionBtn?.classList.add('hide');
     document.querySelectorAll('.tap').forEach(z => z.style.pointerEvents = on ? 'none' : '');
     forEachIframeDoc(foliateView, doc => doc.body.classList.toggle('lookup-mode', on));
   };

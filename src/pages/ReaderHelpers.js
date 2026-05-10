@@ -1,12 +1,14 @@
 /**
  * Reader Helpers — furigana injection, lookup, style application
  */
+import { Capacitor } from '@capacitor/core';
 import settingsService from '../services/SettingsService.js';
 import furiganaEngine from '../services/FuriganaEngine.js';
 import { containsJapanese } from '../utils/helpers.js';
 import { showDictionaryPopup } from '../components/DictionaryPopup.js';
 
 let isLookupMode = false;
+const isAndroidRuntime = Capacitor.getPlatform?.() === 'android';
 let lookupSuppressUntil = 0;
 const hookedLookupDocs = new Set();
 export function getLookupMode() { return isLookupMode; }
@@ -47,15 +49,27 @@ export function injectContentHooks(doc, foliateView) {
     lookupTimer = null;
   };
   doc.defaultView.__readerClearLookupTimer = clearLookupTimer;
-  const scheduleSelectionLookup = (e, delay = 180) => {
+  const scheduleSelectionLookup = (e, delay = 420) => {
     if (Date.now() < lookupSuppressUntil) return;
     clearLookupTimer();
     lookupTimer = setTimeout(() => selectionLookup(doc, e), delay);
   };
-  doc.addEventListener('selectionchange', () => scheduleSelectionLookup(null, 260));
-  doc.addEventListener('mouseup', (e) => scheduleSelectionLookup(e, 80));
-  doc.addEventListener('touchend', (e) => scheduleSelectionLookup(e, 360), { passive: true });
-  doc.addEventListener('keyup', (e) => scheduleSelectionLookup(e, 80));
+
+  if (isAndroidRuntime) {
+    // Android WebView fires selection/touch events as soon as the first kanji
+    // is selected. Show a manual CTA instead, so users can expand selection
+    // handles before opening the dictionary.
+    doc.addEventListener('selectionchange', () => {
+      clearLookupTimer();
+      notifyLookupSelectionChange(doc);
+    });
+  } else {
+    // Web/desktop keeps the convenient automatic popup after selection.
+    doc.addEventListener('selectionchange', () => scheduleSelectionLookup(null, 260));
+    doc.addEventListener('touchend', (e) => scheduleSelectionLookup(e, 360), { passive: true });
+  }
+  doc.addEventListener('mouseup', (e) => scheduleSelectionLookup(e, 260));
+  doc.addEventListener('keyup', (e) => scheduleSelectionLookup(e, 260));
 }
 
 function extractWordFromClick(doc, e) {
@@ -246,12 +260,35 @@ function extractJapaneseToken(source = '', offset = 0) {
   return { text: token, index: charIndex };
 }
 
-function selectionLookup(doc, event = null) {
-  if (!isLookupMode || Date.now() < lookupSuppressUntil) return;
+export function lookupCurrentSelection(doc = null) {
+  const targetDoc = doc || getActiveSelectionDoc();
+  if (!targetDoc) return false;
+  return selectionLookup(targetDoc, null, { clearSelection: true });
+}
+
+export function getActiveSelectionDoc() {
+  for (const doc of [...hookedLookupDocs].reverse()) {
+    const sel = doc?.getSelection?.();
+    const text = normalizeSelectedLookupText(sel?.toString?.() || '');
+    if (sel && !sel.isCollapsed && sel.rangeCount && text && containsJapanese(text)) return doc;
+  }
+  return null;
+}
+
+function notifyLookupSelectionChange(doc) {
+  const sel = doc?.getSelection?.();
+  const text = normalizeSelectedLookupText(sel?.toString?.() || '');
+  const hasSelection = !!(isLookupMode && sel && !sel.isCollapsed && sel.rangeCount && text && containsJapanese(text));
+  window.dispatchEvent(new CustomEvent('reader:lookup-selection', { detail: { hasSelection } }));
+}
+
+function selectionLookup(doc, event = null, options = {}) {
+  if (!isLookupMode || Date.now() < lookupSuppressUntil) return false;
   const sel = doc.getSelection?.();
-  const raw = sel?.toString?.() || '';
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return false;
+  const raw = sel.toString?.() || '';
   const text = normalizeSelectedLookupText(raw);
-  if (!text || text.length > 60 || !containsJapanese(text)) return;
+  if (!text || text.length > 60 || !containsJapanese(text)) return false;
 
   const range = sel.rangeCount ? sel.getRangeAt(0) : null;
   const rect = getSelectionRect(range);
@@ -265,7 +302,9 @@ function selectionLookup(doc, event = null) {
       : { x: window.innerWidth / 2, y: window.innerHeight / 2 };
 
   showDictionaryPopup(text, '', { text, index: 0 }, position);
-  clearNativeSelectionSoon(sel, doc);
+  window.dispatchEvent(new CustomEvent('reader:lookup-selection', { detail: { hasSelection: false } }));
+  if (options.clearSelection !== false) clearNativeSelectionSoon(sel, doc);
+  return true;
 }
 
 function clearNativeSelectionSoon(selection, doc) {
