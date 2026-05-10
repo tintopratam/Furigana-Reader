@@ -1,0 +1,29 @@
+/* Settings Page v3 */
+.settings-body{padding-bottom:36px}
+.s-card{background:var(--c-surface);border-radius:var(--r-lg);padding:14px;border:1px solid var(--c-border);margin-bottom:16px}
+.s-card-title{font-size:.72rem;font-weight:700;letter-spacing:.05em;color:var(--c-text3);margin-bottom:10px;text-transform:uppercase}
+.s-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--c-border);gap:10px}
+.s-row:last-child{border-bottom:none}
+.s-row label{font-size:.85rem;font-weight:600;color:var(--c-text)}
+.s-hint{font-size:.74rem;color:var(--c-text3);margin-bottom:10px;line-height:1.4}
+.s-sub{font-size:.72rem;color:var(--c-text2);line-height:1.35;margin-top:2px;margin-bottom:2px}
+.s-dict-row>div{flex:1;min-width:0}
+.s-dict-status{display:block;font-size:.68rem;color:var(--c-text3);margin-top:1px}
+.s-dict-status.ok{color:var(--c-green)}
+.s-dict-external{align-items:flex-start;padding:11px 0}
+.s-prog-wrap{padding:6px 0 2px}
+.s-prog-bar{height:3px;background:var(--c-border2);border-radius:2px;overflow:hidden}
+.s-prog-fill{height:100%;background:var(--c-accent);border-radius:2px;transition:width .3s ease;width:0%}
+.s-about{font-size:.78rem;color:var(--c-text3);line-height:1.5}
+
+.s-theme-row{display:flex;gap:6px}
+.s-theme-btn{flex:1;padding:7px;border-radius:var(--r-sm);border:2px solid var(--c-border);background:var(--c-surface2);color:var(--c-text);font-size:.78rem;font-weight:500;cursor:pointer;text-align:center;font-family:var(--font-ui);transition:all var(--dur) var(--ease)}
+.s-theme-btn.on{border-color:var(--c-accent);background:var(--c-accent-dim)}
+
+.btn-outline{background:var(--c-surface2);color:var(--c-text2);border:1px solid var(--c-border);text-decoration:none;white-space:nowrap}
+.btn-outline:hover{color:var(--c-accent);border-color:var(--c-accent);background:var(--c-accent-dim)}
+
+.sel{min-width:132px;padding:8px 10px;border-radius:var(--r-sm);border:1px solid var(--c-border);background:var(--c-surface2);color:var(--c-text);font-family:var(--font-ui);font-size:.8rem;outline:none}
+.s-color-control{display:flex;align-items:center;gap:8px}
+.s-color-control input[type="color"]{width:38px;height:34px;border:1px solid var(--c-border);border-radius:10px;background:var(--c-surface2);padding:3px}
+.s-color-text{width:86px;padding:8px 9px;border-radius:var(--r-sm);border:1px solid var(--c-border);background:var(--c-surface2);color:var(--c-text);font-family:var(--font-ui);font-size:.78rem;text-transform:uppercase}

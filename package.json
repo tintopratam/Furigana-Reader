@@ -1,0 +1,27 @@
+{
+  "name": "reader",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "cap:sync": "npm run build && npx cap sync"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vite": "^6.3.5"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.6.4",
+    "@capacitor/cli": "^7.2.0",
+    "@capacitor/core": "^7.2.0",
+    "@patdx/kuromoji": "^1.0.4",
+    "dexie": "^4.4.2",
+    "foliate-js": "^1.0.1",
+    "kuroshiro": "^1.2.0",
+    "kuroshiro-analyzer-kuromoji": "^1.1.0",
+    "wanakana": "^5.3.1"
+  }
+}

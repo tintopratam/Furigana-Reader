@@ -1,0 +1,14 @@
+{
+  "version": "sample-wiktionary-ja-v3",
+  "entries": [
+    { "term": "言葉", "keys": ["言葉", "ことば", "言", "葉"], "gloss": "word; phrase; language; speech. A means of expressing thought or feeling." },
+    { "term": "ことば", "keys": ["言葉", "ことば"], "gloss": "Hiragana form of 言葉; language, words, speech." },
+    { "term": "言", "keys": ["言葉", "言", "ことば"], "gloss": "speech; word; saying. Appears in compounds related to language and statements." },
+    { "term": "葉", "keys": ["言葉", "葉"], "gloss": "leaf; blade; a component kanji in 言葉." },
+    { "term": "猫", "keys": ["猫", "ねこ"], "gloss": "A cat; especially a domestic cat. Also appears in compounds and idioms." },
+    { "term": "犬", "keys": ["犬", "いぬ"], "gloss": "A dog; canine. Often used in common expressions and animal names." },
+    { "term": "本", "keys": ["本", "ほん"], "gloss": "Book; main; true; origin. A common counter and noun depending on context." },
+    { "term": "読む", "keys": ["読む", "よむ"], "gloss": "To read; to count; to predict; to understand from context." },
+    { "term": "見る", "keys": ["見る", "みる"], "gloss": "To see; watch; inspect; try doing when used as an auxiliary verb." }
+  ]
+}

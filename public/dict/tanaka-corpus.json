@@ -1,0 +1,14 @@
+{
+  "version": "sample-tanaka-corpus-v3",
+  "sentences": [
+    { "keys": ["言葉", "ことば", "言", "葉"], "japanese": "言葉は人の気持ちを伝えるために大切です。", "english": "Words are important for communicating people's feelings." },
+    { "keys": ["言葉", "ことば", "言"], "japanese": "その言葉の意味を辞書で調べました。", "english": "I looked up the meaning of that word in a dictionary." },
+    { "keys": ["言葉", "ことば"], "japanese": "優しい言葉をかけてもらって安心しました。", "english": "I felt relieved when someone said kind words to me." },
+    { "keys": ["言葉", "ことば", "葉"], "japanese": "外国語を学ぶと、新しい言葉をたくさん覚えます。", "english": "When you learn a foreign language, you memorize many new words." },
+    { "keys": ["猫", "ねこ"], "japanese": "猫がソファーの上で寝ています。", "english": "The cat is sleeping on the sofa." },
+    { "keys": ["犬", "いぬ"], "japanese": "その犬は毎朝公園を走ります。", "english": "The dog runs in the park every morning." },
+    { "keys": ["本", "ほん"], "japanese": "この本は日本語の勉強に役立ちます。", "english": "This book is useful for studying Japanese." },
+    { "keys": ["読む", "よむ"], "japanese": "彼女は毎晩寝る前に本を読みます。", "english": "She reads a book every night before sleeping." },
+    { "keys": ["見る", "みる"], "japanese": "週末に友達と映画を見ました。", "english": "I watched a movie with my friends on the weekend." }
+  ]
+}

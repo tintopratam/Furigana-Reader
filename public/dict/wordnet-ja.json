@@ -1,0 +1,14 @@
+{
+  "version": "sample-wordnet-ja-en-v3",
+  "entries": [
+    { "word": "言葉", "keys": ["言葉", "ことば", "言", "葉"], "definition": "word; language; speech; expression", "synonyms": ["語", "単語", "表現"], "semantic": "communication, language" },
+    { "word": "語", "keys": ["言葉", "ことば", "語", "言"], "definition": "word; language; term", "synonyms": ["言葉", "単語"], "semantic": "language unit" },
+    { "word": "表現", "keys": ["言葉", "ことば", "表現", "言"], "definition": "expression; representation; wording", "synonyms": ["言い表し", "言い回し"], "semantic": "communication act" },
+    { "word": "単語", "keys": ["言葉", "ことば", "単語", "語"], "definition": "single word; vocabulary item", "synonyms": ["語", "ワード"], "semantic": "lexical item" },
+    { "word": "猫", "keys": ["猫", "ねこ"], "definition": "cat; domestic feline", "synonyms": ["ネコ", "家猫"], "semantic": "animal, mammal, pet" },
+    { "word": "犬", "keys": ["犬", "いぬ"], "definition": "dog; domestic canine", "synonyms": ["狗", "ワンちゃん"], "semantic": "animal, mammal, pet" },
+    { "word": "本", "keys": ["本", "ほん"], "definition": "book; volume; origin", "synonyms": ["書物", "書籍"], "semantic": "publication, written work" },
+    { "word": "読む", "keys": ["読む", "よむ"], "definition": "to read; to interpret", "synonyms": ["読書する", "解釈する"], "semantic": "cognition, communication" },
+    { "word": "見る", "keys": ["見る", "みる"], "definition": "to see; to look; to observe", "synonyms": ["眺める", "観察する"], "semantic": "perception, vision" }
+  ]
+}
