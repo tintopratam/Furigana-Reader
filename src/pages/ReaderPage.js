@@ -234,6 +234,7 @@ async function openBook(book) {
       if (getLookupMode() || doc.getSelection()?.toString()) return;
       foliateView.dispatchEvent(new CustomEvent('reader-toggle-controls'));
     });
+    installImageLongPress(doc);
     doc.addEventListener('scroll', () => updateScrolledEdgeButtons(doc), { passive: true });
     requestAnimationFrame(() => updateScrolledEdgeButtons(doc));
     if (settingsService.get('furiganaFilter') !== 'none') await injectFurigana(doc.body);
@@ -425,11 +426,97 @@ function clearKeyboardDocs() {
 }
 
 function closeReader() {
+  document.querySelector('.r-image-viewer')?.remove();
   if (keyHandler) { clearKeyboardDocs(); keyHandler = null; }
   if (foliateView) { try { foliateView.close(); } catch {} try { foliateView.remove(); } catch {} foliateView = null; }
   epubBook = null; currentBook = null;
   setBottomNavVisible(true);
   router.navigate('/home');
+}
+
+function installImageLongPress(doc) {
+  let timer = null;
+  let startX = 0, startY = 0;
+  const clear = () => { clearTimeout(timer); timer = null; };
+  const getImage = (target) => target?.closest?.('img, svg image');
+
+  doc.addEventListener('pointerdown', (e) => {
+    const img = getImage(e.target);
+    if (!img) return;
+    startX = e.clientX; startY = e.clientY;
+    clear();
+    timer = setTimeout(() => {
+      e.preventDefault?.();
+      const src = img.currentSrc || img.src || img.getAttribute('href') || img.getAttribute('xlink:href');
+      if (src) openImageViewer(src);
+    }, 560);
+  }, true);
+  doc.addEventListener('pointermove', (e) => {
+    if (Math.hypot(e.clientX - startX, e.clientY - startY) > 12) clear();
+  }, true);
+  ['pointerup', 'pointercancel', 'pointerleave', 'scroll'].forEach(type => doc.addEventListener(type, clear, true));
+  doc.addEventListener('dragstart', (e) => { if (getImage(e.target)) e.preventDefault(); }, true);
+}
+
+function openImageViewer(src) {
+  document.querySelector('.r-image-viewer')?.remove();
+  let scale = 1, x = 0, y = 0;
+  let dragging = false, lastX = 0, lastY = 0;
+  let pinchStart = 0, pinchScale = 1;
+  const pointers = new Map();
+
+  const viewer = document.createElement('div');
+  viewer.className = 'r-image-viewer';
+  viewer.innerHTML = `<div class="r-img-backdrop"></div><button class="r-img-close" type="button" aria-label="Close image">${icon('x')}</button><img class="r-img-full" alt="Zoomed EPUB image">`;
+  document.body.appendChild(viewer);
+  const img = viewer.querySelector('.r-img-full');
+  img.src = src;
+  const apply = () => { img.style.transform = `translate3d(${x}px,${y}px,0) scale(${scale})`; };
+  const clampScale = (value) => Math.max(1, Math.min(6, value));
+
+  viewer.querySelector('.r-img-close').onclick = () => viewer.remove();
+  viewer.querySelector('.r-img-backdrop').onclick = () => viewer.remove();
+  viewer.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const next = clampScale(scale + (e.deltaY < 0 ? .18 : -.18));
+    if (next === 1) { x = 0; y = 0; }
+    scale = next; apply();
+  }, { passive: false });
+  viewer.addEventListener('dblclick', () => { scale = scale > 1 ? 1 : 2.4; x = 0; y = 0; apply(); });
+  viewer.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button')) return;
+    viewer.setPointerCapture?.(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    dragging = pointers.size === 1;
+    lastX = e.clientX; lastY = e.clientY;
+    if (pointers.size === 2) {
+      const pts = [...pointers.values()];
+      pinchStart = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      pinchScale = scale;
+    }
+  });
+  viewer.addEventListener('pointermove', (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) {
+      const pts = [...pointers.values()];
+      scale = clampScale(pinchScale * (Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) / Math.max(1, pinchStart)));
+      if (scale === 1) { x = 0; y = 0; }
+      apply();
+      return;
+    }
+    if (dragging && scale > 1) {
+      x += e.clientX - lastX;
+      y += e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY;
+      apply();
+    }
+  });
+  ['pointerup', 'pointercancel'].forEach(type => viewer.addEventListener(type, (e) => {
+    pointers.delete(e.pointerId);
+    dragging = false;
+  }));
+  apply();
 }
 
 function showTOC() {

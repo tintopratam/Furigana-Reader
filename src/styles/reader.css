@@ -124,3 +124,10 @@
 .r-footnote{position:fixed;z-index:350;bottom:0;left:0;right:0;max-height:40vh;background:var(--c-surface);border-radius:var(--r-xl) var(--r-xl) 0 0;padding:16px 18px 20px;padding-bottom:calc(20px + var(--safe-b));box-shadow:0 -4px 24px rgba(0,0,0,.2);overflow-y:auto;animation:sheetUp .2s var(--ease)}
 .r-footnote-close{position:absolute;top:10px;right:12px}
 .r-footnote-body{font-size:.88rem;line-height:1.6;color:var(--c-text2)}
+
+/* EPUB image viewer */
+.r-image-viewer{position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:none;user-select:none;animation:fadeIn .16s var(--ease)}
+.r-img-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.88);backdrop-filter:blur(16px)}
+.r-img-full{position:relative;z-index:1;max-width:94vw;max-height:88vh;object-fit:contain;border-radius:var(--r-md);box-shadow:0 24px 80px rgba(0,0,0,.55);transition:transform .05s linear;will-change:transform;touch-action:none;user-select:none;-webkit-user-drag:none}
+.r-img-close{position:absolute;top:calc(14px + var(--safe-t));right:14px;z-index:2;width:42px;height:42px;border-radius:999px;border:1px solid rgba(255,255,255,.16);background:rgba(20,20,28,.72);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;backdrop-filter:blur(12px);box-shadow:0 12px 32px rgba(0,0,0,.28)}
+.r-img-close svg{width:20px;height:20px}

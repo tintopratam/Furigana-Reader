@@ -35,6 +35,33 @@ const EXTERNAL_SOURCES = {
 
 const MAX_ANALYZE_LOOKAROUND = 18;
 
+function normalizeLookupKey(value = '') {
+  return [...String(value).trim()]
+    .join('')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+}
+
+function keyMatchesLookup(rowKey, lookupKeys) {
+  const key = normalizeLookupKey(rowKey);
+  if (!key) return false;
+  return lookupKeys.some(lookup => {
+    const v = normalizeLookupKey(lookup);
+    if (!v) return false;
+    return key === v || key.includes(v) || v.includes(key);
+  });
+}
+
+function getEntrySearchText(row = '') {
+  return [
+    row.word, row.term, row.headword, row.japanese, row.text,
+    row.definition, row.meaning, row.gloss, row.description,
+    row.translation, row.english,
+    ...(row.synonyms || []), ...(row.keys || []),
+  ].filter(Boolean).join(' ');
+}
+
 function getLookupVariants(word = '') {
   const clean = [...String(word).trim()].join('');
   if (!clean) return [];
@@ -174,13 +201,20 @@ class DictionaryService {
 
   async lookupExternal(name, word, relatedKeys = []) {
     if (!word || !dictDB[name]) return [];
-    const keys = [...new Set([word, ...relatedKeys, ...[...word].filter(ch => /[\u4E00-\u9FAF\u3400-\u4DBF]/.test(ch))].filter(Boolean))];
+    const jmdictResults = await this.lookupWord(word);
+    const jmdictKeys = jmdictResults.flatMap(entry => [...(entry.kanji || []), ...(entry.kana || [])]);
+    const baseKeys = [word, ...relatedKeys, ...jmdictKeys, ...getLookupVariants(word)];
+    const keys = [...new Set(baseKeys
+      .flatMap(key => [key, ...[...String(key)].filter(ch => /[\u4E00-\u9FAF\u3400-\u4DBF]/.test(ch))])
+      .map(normalizeLookupKey)
+      .filter(Boolean))];
     const byKey = new Map();
     const addRow = (row) => {
-      const rowKeys = row.keys || [];
-      if (!keys.some(key => rowKeys.includes(key))) return;
+      const rowKeys = row.keys || row.headwords || row.words || row.terms || [row.word, row.term, row.japanese, row.text].filter(Boolean);
+      const text = getEntrySearchText({ ...row, keys: rowKeys });
+      if (!rowKeys.some(key => keyMatchesLookup(key, keys)) && !keyMatchesLookup(text, keys)) return;
       const uniqueKey = row.id ?? `${row.word || row.term || row.japanese || row.text || ''}|${row.definition || row.gloss || row.english || row.translation || ''}`;
-      byKey.set(uniqueKey, row);
+      byKey.set(uniqueKey, { ...row, keys: rowKeys });
     };
 
     if (await this.isLoaded(name)) {
@@ -190,10 +224,21 @@ class DictionaryService {
           rows.forEach(addRow);
         } catch {}
       }
+      if (!byKey.size) {
+        try {
+          const rows = await dictDB[name].filter(row => {
+            const rowKeys = row.keys || [];
+            const text = getEntrySearchText(row);
+            return rowKeys.some(rowKey => keyMatchesLookup(rowKey, keys)) || keyMatchesLookup(text, keys);
+          }).limit(80).toArray();
+          rows.forEach(addRow);
+        } catch {}
+      }
     }
 
     // Always merge bundled JSON too. This fixes stale IndexedDB imports and
-    // allows sections to show all entries connected by word, reading, or kanji.
+    // allows sections to show entries connected by word, reading, kanji, or
+    // JMdict spellings/readings.
     const bundled = await this._loadBundledExternal(name);
     bundled.forEach(addRow);
 
@@ -201,7 +246,7 @@ class DictionaryService {
       try { await dictDB[name].bulkPut([...byKey.values()]); } catch {}
     }
 
-    return [...byKey.values()];
+    return [...byKey.values()].slice(0, 24);
   }
 
   async _loadBundledExternal(name) {

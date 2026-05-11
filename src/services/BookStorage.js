@@ -44,6 +44,8 @@ class BookStorage {
       cover: metadata.cover || null,
       dateAdded: new Date().toISOString(),
       lastRead: null,
+      completed: false,
+      completedAt: null,
     };
 
     await db.books.put(book);
@@ -66,6 +68,20 @@ class BookStorage {
 
   async touchBook(id) {
     await db.books.update(id, { lastRead: new Date().toISOString() });
+  }
+
+  async markCompleted(id, completed = true) {
+    await db.books.update(id, {
+      completed: Boolean(completed),
+      completedAt: completed ? new Date().toISOString() : null,
+    });
+  }
+
+  async toggleCompleted(id) {
+    const book = await db.books.get(id);
+    const completed = !book?.completed;
+    await this.markCompleted(id, completed);
+    return completed;
   }
 
   async saveProgress(bookId, location, percentage) {

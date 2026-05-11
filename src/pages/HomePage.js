@@ -9,7 +9,7 @@ import { escapeHtml, truncate } from '../utils/helpers.js';
 export async function renderHomePage(container) {
   container.innerHTML = '';
   const page = document.createElement('div');
-  page.className = 'page';
+  page.className = 'page page--wide';
   page.innerHTML = `<header class="page-header"><h1>Reader</h1></header><div id="hc"><div class="loading-center"><div class="spinner"></div></div></div>`;
   container.appendChild(page);
 
@@ -34,10 +34,15 @@ export async function renderHomePage(container) {
   if (recent.length) {
     html += `<section><div class="section-head"><span class="section-title">Recent</span><button class="link-btn" id="view-all">All →</button></div>
       <div class="lib-grid">${recent.map(b => `
-        <div class="lib-card" data-id="${b.id}">
-          <div class="lib-cover">${b.cover ? `<img src="${b.cover}" alt="" loading="lazy">` : `<div class="cover-ph">${icon('book')}</div>`}</div>
+        <div class="lib-card ${b.completed ? 'is-completed' : ''}" data-id="${b.id}">
+          <div class="lib-cover">${b.cover ? `<img src="${b.cover}" alt="" loading="lazy">` : `<div class="cover-ph">${icon('book')}</div>`}<span class="lib-done-badge">✓</span></div>
           <div class="lib-title">${escapeHtml(truncate(b.title, 28))}</div>
           <div class="lib-author">${escapeHtml(truncate(b.author, 22))}</div>
+          <div class="lib-actions" aria-label="Book actions">
+            <button class="lib-action-btn lib-complete" data-id="${b.id}" type="button" aria-label="${b.completed ? 'Mark as reading' : 'Mark as completed'}" title="${b.completed ? 'Mark as reading' : 'Mark as completed'}">
+              ${icon('check')}<span>${b.completed ? 'Reading' : 'Done'}</span>
+            </button>
+          </div>
         </div>`).join('')}
       </div></section>`;
   }
@@ -50,5 +55,44 @@ export async function renderHomePage(container) {
   hc.querySelector('#hero')?.addEventListener('click', () => router.navigate(`/read/${lastRead.id}`));
   hc.querySelector('#view-all')?.addEventListener('click', () => router.navigate('/library'));
   hc.querySelector('#go-lib')?.addEventListener('click', () => router.navigate('/library'));
-  hc.querySelectorAll('.lib-card').forEach(c => c.addEventListener('click', () => router.navigate(`/read/${c.dataset.id}`)));
+  attachBookCardControls(hc, async () => renderHomePage(container));
+}
+
+function attachBookCardControls(root, refresh) {
+  let pressTimer = null;
+  let longPressed = false;
+  const clearPress = () => { clearTimeout(pressTimer); pressTimer = null; };
+  const hideActions = () => root.querySelectorAll('.lib-card.show-actions').forEach(c => c.classList.remove('show-actions'));
+
+  root.addEventListener('pointerdown', (e) => {
+    if (!e.target.closest('.lib-card')) hideActions();
+  });
+
+  root.querySelectorAll('.lib-card').forEach(card => {
+    card.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('button')) return;
+      longPressed = false;
+      clearPress();
+      pressTimer = setTimeout(() => {
+        longPressed = true;
+        const willShow = !card.classList.contains('show-actions');
+        hideActions();
+        card.classList.toggle('show-actions', willShow);
+      }, 520);
+    });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(type => card.addEventListener(type, clearPress));
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('button')) return;
+      if (longPressed) { longPressed = false; return; }
+      if (card.classList.contains('show-actions')) { hideActions(); return; }
+      router.navigate(`/read/${card.dataset.id}`);
+    });
+  });
+
+  root.querySelectorAll('.lib-complete').forEach(btn => btn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    hideActions();
+    await bookStorage.toggleCompleted(btn.dataset.id);
+    await refresh();
+  }));
 }

@@ -79,8 +79,8 @@
 /* === Reset === */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;font-family:var(--font-ui);background:var(--c-bg);color:var(--c-text);-webkit-font-smoothing:antialiased;overflow:hidden;touch-action:manipulation;font-size:14px;line-height:1.5}
-#app{display:flex;flex-direction:column;height:100%;overflow:hidden}
-#page-container{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}
+#app{display:flex;flex-direction:column;height:100%;min-height:100dvh;overflow:hidden}
+#page-container{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 
 /* === Typography === */
 h1{font-size:1.35rem;font-weight:700;letter-spacing:-.02em}
@@ -153,5 +153,5 @@ h3{font-size:.92rem;font-weight:600}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--c-border2);border-radius:2px}
 
-/* === Responsive === */
-@media(min-width:768px){.page{max-width:680px;margin:0 auto}}
+@media(min-width:768px){.page:not(.page--wide){max-width:680px;margin:0 auto}.page--wide{max-width:1180px;margin:0 auto;width:100%}}
+@media(min-width:1280px){.page--wide{max-width:1360px}}

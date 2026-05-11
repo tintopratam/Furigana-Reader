@@ -68,12 +68,11 @@ export async function showDictionaryPopup(word, reading = '', context = null, po
     ${meanings ? `<p class="dp-meaning">${escapeHtml(meanings)}</p>` : `<p class="dp-empty">No definition found. Enable ${singleKanji ? 'KANJIDIC' : 'JMdict'} in Settings.</p>`}
     <button class="dp-expand" id="dp-expand">›</button>`;
 
-  popup.querySelector('#dp-close').onclick = e => { e.stopPropagation(); closeDictionaryPopup(); };
-  popup.querySelector('#dp-expand').onclick = e => {
-    e.stopPropagation();
+  bindTap(popup.querySelector('#dp-close'), () => closeDictionaryPopup());
+  bindTap(popup.querySelector('#dp-expand'), () => {
     closeDictionaryPopup();
     showDictionaryFullPage(trimmed, reading, results);
-  };
+  });
 }
 
 function positionMiniPopup(popup, position) {
@@ -104,11 +103,35 @@ async function showDictionaryFullPage(word, reading, results = []) {
   const compounds = singleKanjiDetail ? await dictionaryService.lookupCompounds(displayWord) : [];
   const sourceStatus = await dictionaryService.getSourceStatus();
   const relatedKeys = [...new Set([word, displayWord, displayReading, ...(entry?.kanji || []), ...(entry?.kana || [])].filter(Boolean))];
-  const [wordnetEntries, tanakaEntries, wiktionaryEntries] = await Promise.all([
+  let [wordnetEntries, tanakaEntries, wiktionaryEntries] = await Promise.all([
     sourceStatus.wordnet ? dictionaryService.lookupExternal('wordnet', displayWord, relatedKeys) : [],
     sourceStatus.tanaka ? dictionaryService.lookupExternal('tanaka', displayWord, relatedKeys) : [],
     sourceStatus.wiktionary ? dictionaryService.lookupExternal('wiktionary', displayWord, relatedKeys) : [],
   ]);
+
+  // The bundled WordNet/Wiktionary files can be much smaller than JMdict.
+  // If they do not have an exact row for this word, keep the detail page useful
+  // by deriving semantic/additional-source cards from the JMdict result.
+  if (entry && sourceStatus.wordnet && !wordnetEntries.length) {
+    const related = [...new Set([...(entry.kanji || []), ...(entry.kana || [])].filter(v => v && v !== displayWord))];
+    wordnetEntries = [{
+      id: `jmdict-wordnet-fallback-${displayWord}`,
+      word: displayWord,
+      definition: firstSense?.gloss?.slice(0, 3)?.join('; ') || '',
+      synonyms: related.slice(0, 8),
+      semantic: firstSense?.pos?.slice(0, 3)?.join(', ') || 'JMdict semantic category',
+      source: 'JMdict fallback',
+    }];
+  }
+  if (entry && sourceStatus.wiktionary && !wiktionaryEntries.length) {
+    wiktionaryEntries = entry.sense?.slice(0, 4).map((sense, index) => ({
+      id: `jmdict-wiktionary-fallback-${displayWord}-${index}`,
+      term: displayWord,
+      gloss: sense.gloss?.join('; ') || '',
+      description: sense.pos?.join(', ') || 'JMdict definition',
+      source: 'JMdict fallback',
+    })).filter(item => item.gloss) || [];
+  }
 
   const noteKey = `reader-note:${displayWord}`;
   const savedNote = localStorage.getItem(noteKey) || '';
@@ -129,39 +152,24 @@ async function showDictionaryFullPage(word, reading, results = []) {
       ${results.length > 1 ? `<div class="dp-sec"><div class="dp-sec-title">Other matches</div>${results.slice(1, 5).map(renderOtherMatch).join('')}</div>` : ''}
       ${kanjiDetails.length ? `<div class="dp-sec"><div class="dp-sec-title">Kanji <span>From KANJIDIC</span></div>${kanjiDetails.map(renderKanjiCard).join('')}</div>` : ''}
       ${compounds.length ? `<div class="dp-sec"><div class="dp-sec-title">Compounds <span>From JMdict</span></div>${compounds.map(entry => renderCompoundEntry(entry, displayWord)).join('')}</div>` : ''}
-      ${sourceStatus.wordnet ? `<div class="dp-sec"><div class="dp-sec-title">Semantic Links <span>WordNet</span></div>${wordnetEntries.length ? wordnetEntries.map(renderExternalEntry).join('') : '<p class="dp-full-empty">WordNet downloaded, but no semantic links were found for this word.</p>'}</div>` : ''}
-      ${sourceStatus.tanaka ? `<div class="dp-sec"><div class="dp-sec-title">Example Sentences <span>Tanaka Corpus</span></div>${tanakaEntries.length ? tanakaEntries.map(renderExampleEntry).join('') : '<p class="dp-full-empty">Tanaka Corpus downloaded, but no examples were found for this word.</p>'}</div>` : ''}
-      ${sourceStatus.wiktionary ? `<div class="dp-sec"><div class="dp-sec-title">Additional Sources <span>Wiktionary / Wikidata</span></div>${wiktionaryEntries.length ? wiktionaryEntries.map(renderExternalEntry).join('') : '<p class="dp-full-empty">Wiktionary/Wikidata downloaded, but no extra entries were found for this word.</p>'}</div>` : ''}
+      ${sourceStatus.wordnet ? `<div class="dp-sec"><div class="dp-sec-title">Semantic Links <span>WordNet</span></div>${wordnetEntries.length ? wordnetEntries.map(renderExternalEntry).join('') : '<p class="dp-full-empty">No WordNet semantic links found for this word.</p>'}</div>` : ''}
+      ${sourceStatus.tanaka ? `<div class="dp-sec"><div class="dp-sec-title">Example Sentences <span>Tanaka Corpus</span></div>${tanakaEntries.length ? tanakaEntries.map(renderExampleEntry).join('') : '<p class="dp-full-empty">No Tanaka example sentences found for this word.</p>'}</div>` : ''}
+      ${sourceStatus.wiktionary ? `<div class="dp-sec"><div class="dp-sec-title">Additional Sources <span>Wiktionary / Wikidata</span></div>${wiktionaryEntries.length ? wiktionaryEntries.map(renderExternalEntry).join('') : '<p class="dp-full-empty">No Wiktionary/Wikidata entries found for this word.</p>'}</div>` : ''}
       <div class="dp-sec"><div class="dp-sec-title">Notes</div><textarea class="dp-note-area" id="dp-note" placeholder="Add your notes about this word…">${escapeHtml(savedNote)}</textarea></div>
     </div>`;
   document.body.appendChild(page);
   requestAnimationFrame(() => page.classList.add('open'));
-  page.querySelector('#dp-back').onclick = () => { page.classList.add('out'); setTimeout(() => page.remove(), 280); };
+  bindTap(page.querySelector('#dp-back'), () => { page.classList.add('out'); setTimeout(() => page.remove(), 280); });
   page.querySelector('#dp-note').oninput = e => {
     const val = e.target.value.trim();
     if (val) localStorage.setItem(noteKey, val);
     else localStorage.removeItem(noteKey);
   };
   page.querySelectorAll('.dp-kanji-detail').forEach(btn => {
-    btn.onclick = () => {
-      const kanji = btn.dataset.kanji;
-      page.classList.add('out');
-      setTimeout(() => {
-        page.remove();
-        showDictionaryFullPage(kanji, '', []);
-      }, 220);
-    };
+    bindTap(btn, () => openDictionaryDetailFromPage(page, btn.dataset.kanji, ''));
   });
   page.querySelectorAll('.dp-compound').forEach(btn => {
-    btn.onclick = async () => {
-      const word = btn.dataset.word;
-      const results = await dictionaryService.lookupWord(word);
-      page.classList.add('out');
-      setTimeout(() => {
-        page.remove();
-        showDictionaryFullPage(word, '', results);
-      }, 220);
-    };
+    bindTap(btn, () => openDictionaryDetailFromPage(page, btn.dataset.word, ''));
   });
 }
 
@@ -181,23 +189,50 @@ function renderCompoundEntry(entry, kanji) {
   const word = (entry.kanji || []).find(k => k.includes(kanji) && [...k].length > 1) || entry.kanji?.[0] || entry.kana?.[0] || '?';
   const reading = entry.kana?.[0] || '';
   const meaning = entry.sense?.[0]?.gloss?.slice(0, 3)?.join(', ') || '';
-  return `<button class="dp-other dp-compound" data-word="${escapeHtml(word)}"><div class="dp-other-word">${escapeHtml(word)}${reading ? `<span class="dp-other-rdg">${escapeHtml(reading)}</span>` : ''}</div><div class="dp-other-mean">${escapeHtml(meaning)}</div></button>`;
+  return `<button type="button" class="dp-other dp-compound" data-word="${escapeHtml(word)}"><div class="dp-other-word">${escapeHtml(word)}${reading ? `<span class="dp-other-rdg">${escapeHtml(reading)}</span>` : ''}</div><div class="dp-other-mean">${escapeHtml(meaning)}</div></button>`;
 }
 
 function renderKanjiCard(k) {
-  return `<div class="dp-kanji"><div class="dp-kanji-main"><div class="dp-kanji-char">${k.literal}</div><div class="dp-kanji-info"><div class="dp-kanji-rdg">${escapeHtml(k.kunyomi?.join(', ') || '—')} | ${escapeHtml(k.onyomi?.join(', ') || '—')}</div><div class="dp-kanji-mean">${escapeHtml(k.meanings?.slice(0, 5)?.join(', ') || 'N/A')}</div><div class="dp-kanji-meta">${k.grade ? `<span>Grade ${k.grade}</span>` : ''}${k.jlpt ? `<span>JLPT N${k.jlpt}</span>` : ''}${k.strokeCount ? `<span>${k.strokeCount} strokes</span>` : ''}${k.freq ? `<span>Freq #${k.freq}</span>` : ''}</div></div><button class="dp-kanji-detail" data-kanji="${escapeHtml(k.literal)}" title="Open kanji details">Details ›</button></div></div>`;
+  return `<div class="dp-kanji"><div class="dp-kanji-main"><div class="dp-kanji-char">${k.literal}</div><div class="dp-kanji-info"><div class="dp-kanji-rdg">${escapeHtml(k.kunyomi?.join(', ') || '—')} | ${escapeHtml(k.onyomi?.join(', ') || '—')}</div><div class="dp-kanji-mean">${escapeHtml(k.meanings?.slice(0, 5)?.join(', ') || 'N/A')}</div><div class="dp-kanji-meta">${k.grade ? `<span>Grade ${k.grade}</span>` : ''}${k.jlpt ? `<span>JLPT N${k.jlpt}</span>` : ''}${k.strokeCount ? `<span>${k.strokeCount} strokes</span>` : ''}${k.freq ? `<span>Freq #${k.freq}</span>` : ''}</div></div><button type="button" class="dp-kanji-detail" data-kanji="${escapeHtml(k.literal)}" title="Open kanji details">Details ›</button></div></div>`;
 }
 
 function renderExternalEntry(entry) {
   const title = entry.word || entry.term || entry.headword || entry.japanese || entry.keys?.[0] || 'Entry';
   const body = entry.definition || entry.meaning || entry.gloss || entry.description || entry.translation || entry.english || entry.synonyms?.join(', ') || '';
-  return `<div class="dp-other"><div class="dp-other-word">${escapeHtml(title)}</div><div class="dp-other-mean">${escapeHtml(body || JSON.stringify(entry))}</div></div>`;
+  const meta = [entry.semantic, entry.source].filter(Boolean).join(' · ');
+  const synonyms = entry.synonyms?.length ? `<div class="dp-other-mean"><b>Related:</b> ${escapeHtml(entry.synonyms.join(', '))}</div>` : '';
+  return `<div class="dp-other"><div class="dp-other-word">${escapeHtml(title)}</div>${meta ? `<div class="dp-other-mean"><b>${escapeHtml(meta)}</b></div>` : ''}<div class="dp-other-mean">${escapeHtml(body || JSON.stringify(entry))}</div>${synonyms}</div>`;
 }
 
 function renderExampleEntry(entry) {
   const jp = entry.japanese || entry.jp || entry.text || entry.sentence || entry.keys?.[0] || '';
   const en = entry.english || entry.en || entry.translation || entry.meaning || '';
   return `<div class="dp-other"><div class="dp-other-word">${escapeHtml(jp)}</div>${en ? `<div class="dp-other-mean">${escapeHtml(en)}</div>` : ''}</div>`;
+}
+
+function bindTap(el, handler) {
+  if (!el) return;
+  let handledAt = 0;
+  const run = (event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    const now = Date.now();
+    if (now - handledAt < 320) return;
+    handledAt = now;
+    handler(event);
+  };
+  el.addEventListener('pointerup', run);
+  el.addEventListener('click', run);
+}
+
+async function openDictionaryDetailFromPage(page, word, reading = '') {
+  if (!word) return;
+  const results = await dictionaryService.lookupWord(word);
+  page.classList.add('out');
+  setTimeout(() => {
+    page.remove();
+    showDictionaryFullPage(word, reading, results);
+  }, 220);
 }
 
 export function closeDictionaryPopup() {
