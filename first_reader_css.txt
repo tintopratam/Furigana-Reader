@@ -1,0 +1,53 @@
+Created At: 2026-07-10T13:03:00Z
+Completed At: 2026-07-10T13:03:00Z
+File Path: `file:///c:/laragon/www/Reader/src/main.js`
+Total Lines: 45
+Total Bytes: 1698
+Showing lines 1 to 45
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: /**
+2:  * Reader — Main Entry Point
+3:  */
+4: import './styles/index.css';
+5: import './styles/library.css';
+6: import './styles/reader.css';
+7: import './styles/dictionary.css';
+8: import './styles/settings.css';
+9: 
+10: import router from './utils/router.js';
+11: import settingsService from './services/SettingsService.js';
+12: import { createBottomNav, updateBottomNav, setBottomNavVisible } from './components/BottomNav.js';
+13: import { renderHomePage } from './pages/HomePage.js';
+14: import { renderLibraryPage } from './pages/LibraryPage.js';
+15: import { renderReaderPage } from './pages/ReaderPage.js';
+16: import { renderSettingsPage } from './pages/SettingsPage.js';
+17: 
+18: const app = document.getElementById('app');
+19: const pageContainer = document.createElement('main');
+20: pageContainer.id = 'page-container';
+21: app.appendChild(pageContainer);
+22: 
+23: const bottomNav = createBottomNav();
+24: app.appendChild(bottomNav);
+25: 
+26: router.on('/home', async () => { await renderHomePage(pageContainer); });
+27: router.on('/library', async () => { await renderLibraryPage(pageContainer); });
+28: router.on('/read/:id', async (params) => { await renderReaderPage(pageContainer, params); });
+29: router.on('/settings', async () => { await renderSettingsPage(pageContainer); });
+30: 
+31: router.after((path) => {
+32:   const routeName = router.getRouteName();
+33:   updateBottomNav(routeName);
+34:   setBottomNavVisible(routeName !== 'read');
+35:   if (routeName !== 'read') settingsService.set('lastRoute', path);
+36: });
+37: 
+38: settingsService.get('theme');
+39: if (!window.location.hash) window.location.hash = '/home';
+40: 
+41: // Pre-warm kuromoji in background
+42: import('./services/FuriganaEngine.js').then(mod => mod.furiganaEngine.warmup());
+43: 
+44: console.log('Reader initialized');
+45: 
+The above content shows the entire, complete file contents of the requested file.

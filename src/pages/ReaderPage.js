@@ -17,7 +17,7 @@ import {
 import 'foliate-js/view.js';
 
 let currentBook = null, foliateView = null, epubBook = null;
-let controlsVisible = true, keyHandler = null, activeContentDoc = null;
+let controlsVisible = true, keyHandler = null, activeContentDoc = null, isReaderReady = false;
 const isAndroidRuntime = Capacitor.getPlatform?.() === 'android';
 const keyboardDocs = new Set();
 let sliderDragging = false, sliderCommitTimer = null;
@@ -45,8 +45,8 @@ export async function renderReaderPage(container, params) {
       <div class="tap tap-l" id="tap-l"></div>
       <div class="tap tap-c" id="tap-c"></div>
       <div class="tap tap-r" id="tap-r"></div>
-      <button class="r-edge-nav r-edge-prev hide" id="r-edge-prev" title="Previous chapter">${icon('back')}</button>
-      <button class="r-edge-nav r-edge-next hide" id="r-edge-next" title="Next chapter">${icon('back')}</button>
+      <button class="r-edge-nav r-edge-prev hide" id="r-edge-prev" title="Previous chapter"><span class="ic-wrap">${icon('back')}</span><span>Previous Chapter</span></button>
+      <button class="r-edge-nav r-edge-next hide" id="r-edge-next" title="Next chapter"><span>Next Chapter</span><span class="ic-wrap">${icon('back')}</span></button>
     </div>
     <div class="r-bot" id="r-bot">
       <div class="r-slider-row">
@@ -248,7 +248,7 @@ async function openBook(book) {
     if (slider && !sliderDragging) slider.value = fraction ?? 0;
     if (pct && !sliderDragging) pct.textContent = Math.round((fraction ?? 0) * 100) + '%';
     updateScrolledEdgeButtons();
-    if (currentBook && cfi) bookStorage.saveProgress(currentBook.id, cfi, (fraction ?? 0) * 100);
+    if (isReaderReady && currentBook && cfi) bookStorage.saveProgress(currentBook.id, cfi, (fraction ?? 0) * 100);
   });
 
   const blob = new Blob([book.data], { type: 'application/epub+zip' });
@@ -268,10 +268,12 @@ async function openBook(book) {
 
   // Restore position
   const progress = await bookStorage.getProgress(book.id);
+  isReaderReady = false;
   try {
     if (progress?.location) await foliateView.init({ lastLocation: progress.location });
     else await foliateView.init({ showTextStart: true });
   } catch { try { await foliateView.init({ showTextStart: true }); } catch {} }
+  isReaderReady = true;
   requestAnimationFrame(() => updateScrolledEdgeButtons(activeContentDoc));
 }
 
@@ -283,7 +285,7 @@ function toggleControls() {
     document.getElementById('r-edge-prev')?.classList.add('hide');
     document.getElementById('r-edge-next')?.classList.add('hide');
   } else {
-    updateScrolledEdgeButtons(activeContentDoc);
+    updateScrolledEdgeButtons();
   }
 }
 
@@ -324,7 +326,7 @@ function updateScrolledEdgeButtons() {
   prev.classList.toggle('horizontal-edge', !vertical);
   next.classList.toggle('horizontal-edge', !vertical);
 
-  const canShow = flow === 'scrolled' && controlsVisible && renderer;
+  const canShow = flow === 'scrolled' && renderer;
   if (!canShow) {
     prev.classList.add('hide');
     next.classList.add('hide');

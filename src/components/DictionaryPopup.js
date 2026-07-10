@@ -100,38 +100,7 @@ async function showDictionaryFullPage(word, reading, results = []) {
     const detail = await dictionaryService.lookupKanji(ch);
     if (detail) kanjiDetails.push(detail);
   }
-  const compounds = singleKanjiDetail ? await dictionaryService.lookupCompounds(displayWord) : [];
   const sourceStatus = await dictionaryService.getSourceStatus();
-  const relatedKeys = [...new Set([word, displayWord, displayReading, ...(entry?.kanji || []), ...(entry?.kana || [])].filter(Boolean))];
-  let [wordnetEntries, tanakaEntries, wiktionaryEntries] = await Promise.all([
-    sourceStatus.wordnet ? dictionaryService.lookupExternal('wordnet', displayWord, relatedKeys) : [],
-    sourceStatus.tanaka ? dictionaryService.lookupExternal('tanaka', displayWord, relatedKeys) : [],
-    sourceStatus.wiktionary ? dictionaryService.lookupExternal('wiktionary', displayWord, relatedKeys) : [],
-  ]);
-
-  // The bundled WordNet/Wiktionary files can be much smaller than JMdict.
-  // If they do not have an exact row for this word, keep the detail page useful
-  // by deriving semantic/additional-source cards from the JMdict result.
-  if (entry && sourceStatus.wordnet && !wordnetEntries.length) {
-    const related = [...new Set([...(entry.kanji || []), ...(entry.kana || [])].filter(v => v && v !== displayWord))];
-    wordnetEntries = [{
-      id: `jmdict-wordnet-fallback-${displayWord}`,
-      word: displayWord,
-      definition: firstSense?.gloss?.slice(0, 3)?.join('; ') || '',
-      synonyms: related.slice(0, 8),
-      semantic: firstSense?.pos?.slice(0, 3)?.join(', ') || 'JMdict semantic category',
-      source: 'JMdict fallback',
-    }];
-  }
-  if (entry && sourceStatus.wiktionary && !wiktionaryEntries.length) {
-    wiktionaryEntries = entry.sense?.slice(0, 4).map((sense, index) => ({
-      id: `jmdict-wiktionary-fallback-${displayWord}-${index}`,
-      term: displayWord,
-      gloss: sense.gloss?.join('; ') || '',
-      description: sense.pos?.join(', ') || 'JMdict definition',
-      source: 'JMdict fallback',
-    })).filter(item => item.gloss) || [];
-  }
 
   const noteKey = `reader-note:${displayWord}`;
   const savedNote = localStorage.getItem(noteKey) || '';
@@ -151,10 +120,12 @@ async function showDictionaryFullPage(word, reading, results = []) {
       <div class="dp-sec"><div class="dp-sec-title">Definitions <span>From JMdict</span></div>${entry ? renderDefinitions(entry) : '<p class="dp-full-empty">No definitions found.</p>'}</div>
       ${results.length > 1 ? `<div class="dp-sec"><div class="dp-sec-title">Other matches</div>${results.slice(1, 5).map(renderOtherMatch).join('')}</div>` : ''}
       ${kanjiDetails.length ? `<div class="dp-sec"><div class="dp-sec-title">Kanji <span>From KANJIDIC</span></div>${kanjiDetails.map(renderKanjiCard).join('')}</div>` : ''}
-      ${compounds.length ? `<div class="dp-sec"><div class="dp-sec-title">Compounds <span>From JMdict</span></div>${compounds.map(entry => renderCompoundEntry(entry, displayWord)).join('')}</div>` : ''}
-      ${sourceStatus.wordnet ? `<div class="dp-sec"><div class="dp-sec-title">Semantic Links <span>WordNet</span></div>${wordnetEntries.length ? wordnetEntries.map(renderExternalEntry).join('') : '<p class="dp-full-empty">No WordNet semantic links found for this word.</p>'}</div>` : ''}
-      ${sourceStatus.tanaka ? `<div class="dp-sec"><div class="dp-sec-title">Example Sentences <span>Tanaka Corpus</span></div>${tanakaEntries.length ? tanakaEntries.map(renderExampleEntry).join('') : '<p class="dp-full-empty">No Tanaka example sentences found for this word.</p>'}</div>` : ''}
-      ${sourceStatus.wiktionary ? `<div class="dp-sec"><div class="dp-sec-title">Additional Sources <span>Wiktionary / Wikidata</span></div>${wiktionaryEntries.length ? wiktionaryEntries.map(renderExternalEntry).join('') : '<p class="dp-full-empty">No Wiktionary/Wikidata entries found for this word.</p>'}</div>` : ''}
+      
+      <div id="async-compounds"></div>
+      ${sourceStatus.wordnet ? `<div id="async-wordnet"><p style="padding:16px;opacity:0.6;font-size:14px;text-align:center">Loading WordNet…</p></div>` : ''}
+      ${sourceStatus.tanaka ? `<div id="async-tanaka"><p style="padding:16px;opacity:0.6;font-size:14px;text-align:center">Loading sentences…</p></div>` : ''}
+      ${sourceStatus.wiktionary ? `<div id="async-wiktionary"><p style="padding:16px;opacity:0.6;font-size:14px;text-align:center">Loading Wiktionary…</p></div>` : ''}
+      
       <div class="dp-sec"><div class="dp-sec-title">Notes</div><textarea class="dp-note-area" id="dp-note" placeholder="Add your notes about this word…">${escapeHtml(savedNote)}</textarea></div>
     </div>`;
   document.body.appendChild(page);
@@ -171,6 +142,88 @@ async function showDictionaryFullPage(word, reading, results = []) {
   page.querySelectorAll('.dp-compound').forEach(btn => {
     bindTap(btn, () => openDictionaryDetailFromPage(page, btn.dataset.word, ''));
   });
+
+  // Load heavier lookups asynchronously
+  if (window.requestIdleCallback) {
+    requestIdleCallback(() => fetchAsyncSections());
+  } else {
+    setTimeout(fetchAsyncSections, 50);
+  }
+
+  async function fetchAsyncSections() {
+    const relatedKeys = [...new Set([word, displayWord, displayReading, ...(entry?.kanji || []), ...(entry?.kana || [])].filter(Boolean))];
+    const compounds = singleKanjiDetail ? await dictionaryService.lookupCompounds(displayWord) : [];
+    if (compounds.length) {
+      const el = page.querySelector('#async-compounds');
+      if (el) {
+         el.innerHTML = `<div class="dp-sec"><div class="dp-sec-title">Compounds <span>From JMdict</span></div>${compounds.map(entry => renderCompoundEntry(entry, displayWord)).join('')}</div>`;
+         el.querySelectorAll('.dp-compound').forEach(btn => bindTap(btn, () => openDictionaryDetailFromPage(page, btn.dataset.word, '')));
+      }
+    } else {
+      const el = page.querySelector('#async-compounds');
+      if (el) el.innerHTML = '';
+    }
+
+    if (sourceStatus.wordnet) {
+      let wordnetEntries = await dictionaryService.lookupExternal('wordnet', displayWord, relatedKeys);
+      if (entry && !wordnetEntries.length) {
+         const related = [...new Set([...(entry.kanji || []), ...(entry.kana || [])].filter(v => v && v !== displayWord))];
+         const firstSense = entry.sense?.[0];
+         wordnetEntries = [{
+           id: `jmdict-wordnet-fallback-${displayWord}`, word: displayWord,
+           definition: firstSense?.gloss?.slice(0, 3)?.join('; ') || '',
+           synonyms: related.slice(0, 8),
+           semantic: firstSense?.pos?.slice(0, 3)?.join(', ') || 'JMdict semantic category',
+           source: 'JMdict fallback',
+         }];
+      }
+      renderCollapsibleSection(page.querySelector('#async-wordnet'), 'Semantic Links', 'WordNet', wordnetEntries, renderExternalEntry, 'No WordNet semantic links found for this word.');
+    }
+
+    if (sourceStatus.tanaka) {
+      const tanakaEntries = await dictionaryService.lookupExternal('tanaka', displayWord, relatedKeys);
+      renderCollapsibleSection(page.querySelector('#async-tanaka'), 'Example Sentences', 'Tanaka Corpus', tanakaEntries, renderExampleEntry, 'No Tanaka example sentences found for this word.');
+    }
+
+    if (sourceStatus.wiktionary) {
+      let wiktionaryEntries = await dictionaryService.lookupExternal('wiktionary', displayWord, relatedKeys);
+      if (entry && !wiktionaryEntries.length) {
+        wiktionaryEntries = entry.sense?.slice(0, 4).map((sense, index) => ({
+          id: `jmdict-wiktionary-fallback-${displayWord}-${index}`,
+          term: displayWord,
+          gloss: sense.gloss?.join('; ') || '',
+          description: sense.pos?.join(', ') || 'JMdict definition',
+          source: 'JMdict fallback',
+        })).filter(item => item.gloss) || [];
+      }
+      renderCollapsibleSection(page.querySelector('#async-wiktionary'), 'Additional Sources', 'Wiktionary / Wikidata', wiktionaryEntries, renderExternalEntry, 'No Wiktionary/Wikidata entries found for this word.');
+    }
+  }
+}
+
+function renderCollapsibleSection(el, title, subtitle, entries, renderItemFn, emptyMsg) {
+  if (!el) return;
+  if (!entries || !entries.length) {
+    el.innerHTML = `<div class="dp-sec"><div class="dp-sec-title">${escapeHtml(title)} <span>${escapeHtml(subtitle)}</span></div><p class="dp-full-empty">${escapeHtml(emptyMsg)}</p></div>`;
+    return;
+  }
+  const limit = 3;
+  const initialHtml = entries.slice(0, limit).map(renderItemFn).join('');
+  const restHtml = entries.slice(limit).map(renderItemFn).join('');
+  let html = `<div class="dp-sec"><div class="dp-sec-title">${escapeHtml(title)} <span>${escapeHtml(subtitle)}</span></div>${initialHtml}`;
+  if (entries.length > limit) {
+    html += `<div class="dp-more-content" style="display:none;">${restHtml}</div>`;
+    html += `<button type="button" class="dp-show-more-btn" style="width:100%;padding:10px;background:none;border:none;color:var(--accent-color, #4facfe);font-weight:600;cursor:pointer;font-size:13px;border-top:1px dashed rgba(127,127,127,0.2);margin-top:4px;">Show ${entries.length - limit} more ${subtitle}…</button>`;
+  }
+  html += `</div>`;
+  el.innerHTML = html;
+  const btn = el.querySelector('.dp-show-more-btn');
+  if (btn) {
+    bindTap(btn, () => {
+      el.querySelector('.dp-more-content').style.display = 'block';
+      btn.remove();
+    });
+  }
 }
 
 function renderDefinitions(entry) {
@@ -198,10 +251,10 @@ function renderKanjiCard(k) {
 
 function renderExternalEntry(entry) {
   const title = entry.word || entry.term || entry.headword || entry.japanese || entry.keys?.[0] || 'Entry';
-  const body = entry.definition || entry.meaning || entry.gloss || entry.description || entry.translation || entry.english || entry.synonyms?.join(', ') || '';
-  const meta = [entry.semantic, entry.source].filter(Boolean).join(' · ');
+  const body = entry.definition || entry.meaning || entry.gloss || entry.translation || entry.english || entry.synonyms?.join(', ') || '';
+  const meta = [entry.semantic, entry.description, entry.source].filter(Boolean).join(' · ');
   const synonyms = entry.synonyms?.length ? `<div class="dp-other-mean"><b>Related:</b> ${escapeHtml(entry.synonyms.join(', '))}</div>` : '';
-  return `<div class="dp-other"><div class="dp-other-word">${escapeHtml(title)}</div>${meta ? `<div class="dp-other-mean"><b>${escapeHtml(meta)}</b></div>` : ''}<div class="dp-other-mean">${escapeHtml(body || JSON.stringify(entry))}</div>${synonyms}</div>`;
+  return `<div class="dp-other"><div class="dp-other-word">${escapeHtml(title)}</div>${meta ? `<div class="dp-other-mean" style="opacity:0.8;font-size:0.9em;margin-bottom:2px"><b>${escapeHtml(meta)}</b></div>` : ''}<div class="dp-other-mean">${escapeHtml(body || JSON.stringify(entry))}</div>${synonyms}</div>`;
 }
 
 function renderExampleEntry(entry) {

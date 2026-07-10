@@ -15,10 +15,12 @@
   },
   "dependencies": {
     "@capacitor/android": "^7.6.4",
+    "@capacitor/app": "^7.1.2",
     "@capacitor/cli": "^7.2.0",
     "@capacitor/core": "^7.2.0",
+    "@capacitor/filesystem": "^7.1.8",
+    "@capacitor/preferences": "^7.0.4",
     "@patdx/kuromoji": "^1.0.4",
-    "dexie": "^4.4.2",
     "foliate-js": "^1.0.1",
     "kuroshiro": "^1.2.0",
     "kuroshiro-analyzer-kuromoji": "^1.1.0",

@@ -1,23 +1,8 @@
 /**
- * Dictionary Service — JMdict + KANJIDIC storage and lookup
- * Stores dictionary data in IndexedDB for fast offline lookup
+ * Dictionary Service — Fast in-memory lookup mapped over bundled JSON data.
+ * Uses @capacitor/preferences to track enabled/download status without Dexie DB overhead.
  */
-import Dexie from 'dexie';
-
-const dictDB = new Dexie('ReaderDictDB');
-dictDB.version(1).stores({
-  meta: 'name',
-  jmdict: '++id, *kanji, *kana',
-  kanjidic: 'literal',
-});
-dictDB.version(2).stores({
-  meta: 'name',
-  jmdict: '++id, *kanji, *kana',
-  kanjidic: 'literal',
-  wordnet: '++id, *keys',
-  tanaka: '++id, *keys',
-  wiktionary: '++id, *keys',
-});
+import { Preferences } from '@capacitor/preferences';
 
 const BUNDLED_PATHS = {
   jmdict: '/dict/jmdict-eng-common.json',
@@ -95,161 +80,114 @@ function getLookupVariants(word = '') {
 class DictionaryService {
   constructor() {
     this._jmdictCache = null;
+    this._jmdictIndex = null;
     this._kanjidicCache = null;
-    this._bundledJmdict = null;
-    this._bundledKanjidic = null;
+    this._externalCaches = { wordnet: null, tanaka: null, wiktionary: null };
+    this._statusCache = null;
+  }
+
+  async _getStatus() {
+    if (this._statusCache) return this._statusCache;
+    try {
+      const res = await Preferences.get({ key: 'dict_status' });
+      this._statusCache = res.value ? JSON.parse(res.value) : {};
+    } catch {
+      this._statusCache = {};
+    }
+    return this._statusCache;
+  }
+
+  async _saveStatus() {
+    await Preferences.set({ key: 'dict_status', value: JSON.stringify(this._statusCache || {}) });
   }
 
   async isLoaded(name) {
-    const meta = await dictDB.meta.get(name);
-    return !!meta;
+    const status = await this._getStatus();
+    return !!status[name]?.loaded;
   }
 
-  async getMetadata(name) { return dictDB.meta.get(name); }
+  async getMetadata(name) {
+    const status = await this._getStatus();
+    return status[name] || null;
+  }
 
-  /**
-   * Load a bundled dictionary into IndexedDB
-   * @param {string} name - 'jmdict' or 'kanjidic'
-   * @param {function} onProgress - callback(percent)
-   */
   async enable(name, onProgress = () => {}) {
-    const path = BUNDLED_PATHS[name];
-    if (!path) throw new Error(`Unknown dictionary: ${name}`);
-
-    onProgress(5);
-    const response = await fetch(path, { cache: 'no-store' });
-    if (!response.ok) {
-      const source = EXTERNAL_SOURCES[name];
-      if (source) throw new Error(`${source.label} is not bundled yet. Add ${path} to public/dict first.`);
-      throw new Error(`Failed to load dictionary: ${response.status}`);
-    }
-    onProgress(20);
-
-    const data = await response.json();
-    onProgress(50);
-
-    if (name === 'jmdict') await this._storeJmdict(data, onProgress);
-    else if (name === 'kanjidic') await this._storeKanjidic(data, onProgress);
-    else if (EXTERNAL_SOURCES[name]) await this._storeExternalSource(name, data, onProgress);
-
+    onProgress(10);
+    // When a user enables a dictionary, we just mark it as loaded in Preferences.
+    // The data is loaded into memory on-demand from the bundled JSON.
+    const status = await this._getStatus();
+    status[name] = { 
+      name, 
+      loaded: true, 
+      loadedAt: new Date().toISOString(),
+      parserReady: true
+    };
+    await this._saveStatus();
+    
+    // Pre-warm the cache for this dictionary in memory to make lookups fast
+    onProgress(40);
+    if (name === 'jmdict') await this._loadBundledJmdict();
+    else if (name === 'kanjidic') await this._loadBundledKanjidic();
+    else if (EXTERNAL_SOURCES[name]) await this._loadExternal(name);
+    
     onProgress(100);
   }
 
-  async _storeJmdict(data, onProgress) {
-    await dictDB.jmdict.clear();
-    const words = data.words || [];
-    const batchSize = 2000;
-    for (let i = 0; i < words.length; i += batchSize) {
-      const batch = words.slice(i, i + batchSize).map(entry => ({
-        kanji: (entry.kanji || []).map(k => k.text),
-        kana: (entry.kana || []).map(k => k.text),
-        isCommon: (entry.kanji || []).some(k => k.common) || (entry.kana || []).some(k => k.common),
-        sense: (entry.sense || []).map(s => ({
-          pos: s.partOfSpeech || [],
-          gloss: (s.gloss || []).map(g => g.text),
-        })),
-      }));
-      await dictDB.jmdict.bulkAdd(batch);
-      onProgress(50 + Math.round((i / words.length) * 48));
-    }
-    await dictDB.meta.put({ name: 'jmdict', version: data.version || 'unknown', loadedAt: new Date().toISOString(), entryCount: words.length });
-  }
-
-  async _storeKanjidic(data, onProgress) {
-    await dictDB.kanjidic.clear();
-    const chars = data.characters || [];
-    const batchSize = 1000;
-    for (let i = 0; i < chars.length; i += batchSize) {
-      const batch = chars.slice(i, i + batchSize).map(entry => this._normalizeKanjidicEntry(entry));
-      await dictDB.kanjidic.bulkPut(batch);
-      onProgress(50 + Math.round((i / chars.length) * 48));
-    }
-    await dictDB.meta.put({ name: 'kanjidic', version: data.version || 'unknown', loadedAt: new Date().toISOString(), entryCount: chars.length });
-  }
-
-  async _storeExternalSource(name, data, onProgress) {
-    const table = dictDB[name];
-    if (!table) throw new Error(`Missing database table for ${name}`);
-    await table.clear();
-    const entries = data.entries || data.items || data.sentences || data.words || [];
-    const batchSize = 1000;
-    for (let i = 0; i < entries.length; i += batchSize) {
-      const batch = entries.slice(i, i + batchSize).map(entry => {
-        const keys = entry.keys || entry.headwords || entry.words || entry.terms || [entry.word, entry.term, entry.japanese, entry.text].filter(Boolean);
-        return { ...entry, keys: [...new Set((keys || []).filter(Boolean))] };
-      });
-      await table.bulkAdd(batch);
-      onProgress(50 + Math.round((i / Math.max(entries.length, 1)) * 48));
-    }
-    await dictDB.meta.put({
-      name,
-      label: EXTERNAL_SOURCES[name]?.label || name,
-      external: true,
-      parserReady: true,
-      loadedAt: new Date().toISOString(),
-      entryCount: entries.length,
-      version: data.version || 'custom-json',
-    });
-  }
-
   async disable(name) {
-    if (name === 'jmdict') { await dictDB.jmdict.clear(); this._jmdictCache = null; }
-    else if (name === 'kanjidic') { await dictDB.kanjidic.clear(); this._kanjidicCache = null; }
-    else if (dictDB[name]) await dictDB[name].clear();
-    await dictDB.meta.delete(name);
+    const status = await this._getStatus();
+    if (status[name]) {
+      delete status[name];
+      await this._saveStatus();
+    }
+    // Free up RAM
+    if (name === 'jmdict') { this._jmdictCache = null; this._jmdictIndex = null; }
+    else if (name === 'kanjidic') this._kanjidicCache = null;
+    else if (this._externalCaches[name]) this._externalCaches[name] = null;
   }
 
   async lookupExternal(name, word, relatedKeys = []) {
-    if (!word || !dictDB[name]) return [];
+    if (!word || !(await this.isLoaded(name))) return [];
+    
     const jmdictResults = await this.lookupWord(word);
     const jmdictKeys = jmdictResults.flatMap(entry => [...(entry.kanji || []), ...(entry.kana || [])]);
-    const baseKeys = [word, ...relatedKeys, ...jmdictKeys, ...getLookupVariants(word)];
-    const keys = [...new Set(baseKeys
-      .flatMap(key => [key, ...[...String(key)].filter(ch => /[\u4E00-\u9FAF\u3400-\u4DBF]/.test(ch))])
+    const keys = [...new Set([word, ...relatedKeys, ...jmdictKeys, ...getLookupVariants(word)]
       .map(normalizeLookupKey)
       .filter(Boolean))];
+
+    const data = await this._loadExternal(name);
+    if (!data || !data.length) return [];
+
     const byKey = new Map();
     const addRow = (row) => {
-      const rowKeys = row.keys || row.headwords || row.words || row.terms || [row.word, row.term, row.japanese, row.text].filter(Boolean);
-      const text = getEntrySearchText({ ...row, keys: rowKeys });
-      if (!rowKeys.some(key => keyMatchesLookup(key, keys)) && !keyMatchesLookup(text, keys)) return;
-      const uniqueKey = row.id ?? `${row.word || row.term || row.japanese || row.text || ''}|${row.definition || row.gloss || row.english || row.translation || ''}`;
+      const rowKeys = row.keys || [];
+      let matched = false;
+      for (const k of keys) {
+        if (rowKeys.some(rk => {
+            const norm = normalizeLookupKey(rk);
+            return norm === k || (norm.includes(k) || k.includes(norm));
+        })) {
+          matched = true; break;
+        }
+        if (name === 'tanaka' && row.japanese && normalizeLookupKey(row.japanese).includes(k)) {
+          matched = true; break;
+        }
+      }
+      if (!matched) return;
+      const uniqueKey = row.id || JSON.stringify(row);
       byKey.set(uniqueKey, { ...row, keys: rowKeys });
     };
 
-    if (await this.isLoaded(name)) {
-      for (const key of keys) {
-        try {
-          const rows = await dictDB[name].where('keys').equals(key).toArray();
-          rows.forEach(addRow);
-        } catch {}
-      }
-      if (!byKey.size) {
-        try {
-          const rows = await dictDB[name].filter(row => {
-            const rowKeys = row.keys || [];
-            const text = getEntrySearchText(row);
-            return rowKeys.some(rowKey => keyMatchesLookup(rowKey, keys)) || keyMatchesLookup(text, keys);
-          }).limit(80).toArray();
-          rows.forEach(addRow);
-        } catch {}
-      }
-    }
-
-    // Always merge bundled JSON too. This fixes stale IndexedDB imports and
-    // allows sections to show entries connected by word, reading, kanji, or
-    // JMdict spellings/readings.
-    const bundled = await this._loadBundledExternal(name);
-    bundled.forEach(addRow);
-
-    if (byKey.size && await this.isLoaded(name)) {
-      try { await dictDB[name].bulkPut([...byKey.values()]); } catch {}
+    // Fast array filter (much faster than Dexie filter)
+    for (let i = 0; i < data.length; i++) {
+      addRow(data[i]);
+      if (byKey.size >= 24) break; // Limit fast return
     }
 
     return [...byKey.values()].slice(0, 24);
   }
 
-  async _loadBundledExternal(name) {
+  async _loadExternal(name) {
+    if (this._externalCaches[name]) return this._externalCaches[name];
     const path = BUNDLED_PATHS[name];
     if (!path) return [];
     try {
@@ -257,71 +195,90 @@ class DictionaryService {
       if (!response.ok) return [];
       const data = await response.json();
       const entries = data.entries || data.items || data.sentences || data.words || [];
-      return entries.map((entry, idx) => {
+      this._externalCaches[name] = entries.map((entry, idx) => {
         const keys = entry.keys || entry.headwords || entry.words || entry.terms || [entry.word, entry.term, entry.japanese, entry.text].filter(Boolean);
-        return { ...entry, id: entry.id ?? `bundled-${name}-${idx}`, keys: [...new Set((keys || []).filter(Boolean))] };
+        const uniqueKeys = [...new Set((keys || []).filter(Boolean))];
+        const searchArr = [
+          entry.word, entry.term, entry.headword, entry.japanese, entry.text,
+          entry.definition, entry.meaning, entry.gloss, entry.description,
+          entry.translation, entry.english,
+          ...(entry.synonyms || []), ...uniqueKeys
+        ];
+        return { 
+          ...entry, 
+          id: entry.id ?? `bundled-${name}-${idx}`, 
+          keys: uniqueKeys,
+          _searchText: searchArr.filter(Boolean).map(normalizeLookupKey).join(' ')
+        };
       });
+      return this._externalCaches[name];
     } catch { return []; }
   }
 
   async markExternalDownloaded(name) {
     const source = EXTERNAL_SOURCES[name];
     if (!source) throw new Error(`Unknown external source: ${name}`);
-    await dictDB.meta.put({
+    const status = await this._getStatus();
+    status[name] = {
       name,
       label: source.label,
       url: source.url,
       external: true,
       parserReady: false,
-      loadedAt: new Date().toISOString(),
-      entryCount: 0,
-    });
+      loaded: true,
+      loadedAt: new Date().toISOString()
+    };
+    await this._saveStatus();
   }
 
   async getSourceStatus() {
-    const metas = await Promise.all([
-      this.getMetadata('wordnet'),
-      this.getMetadata('tanaka'),
-      this.getMetadata('wiktionary'),
-    ]);
+    const status = await this._getStatus();
     return {
-      wordnet: !!metas[0], wordnetReady: !!metas[0]?.parserReady,
-      tanaka: !!metas[1], tanakaReady: !!metas[1]?.parserReady,
-      wiktionary: !!metas[2], wiktionaryReady: !!metas[2]?.parserReady,
+      wordnet: !!status['wordnet']?.loaded, wordnetReady: !!status['wordnet']?.parserReady,
+      tanaka: !!status['tanaka']?.loaded, tanakaReady: !!status['tanaka']?.parserReady,
+      wiktionary: !!status['wiktionary']?.loaded, wiktionaryReady: !!status['wiktionary']?.parserReady,
     };
   }
 
-  /**
-   * Look up a word in JMdict
-   */
   async lookupWord(word) {
     if (!word) return [];
     const variants = getLookupVariants(word);
-    const findInEntry = entry => variants.some(v => entry.kanji?.includes(v) || entry.kana?.includes(v));
-
-    if (await this.isLoaded('jmdict')) {
-      for (const variant of variants) {
-        let results = await dictDB.jmdict.where('kanji').equals(variant).limit(10).toArray();
-        if (!results.length) results = await dictDB.jmdict.where('kana').equals(variant).limit(10).toArray();
-        if (results.length) return results;
-      }
-      return [];
-    }
-
+    
+    // Fall back to bundled dictionary automatically if disabled (for analysis tool to still work)
     const words = await this._loadBundledJmdict();
-    return words.filter(findInEntry).slice(0, 10);
+    
+    const results = [];
+    const seen = new Set();
+    
+    // O(1) instantaneous lookup using in-memory Map Index
+    for (const variant of variants) {
+      const entryIndexes = this._jmdictIndex.get(variant);
+      if (entryIndexes) {
+        for (const idx of entryIndexes) {
+          if (!seen.has(idx)) {
+            seen.add(idx);
+            results.push(words[idx]);
+            if (results.length >= 10) return results;
+          }
+        }
+      }
+    }
+    
+    return results;
   }
 
   async lookupCompounds(kanji, limit = 24) {
     if (!kanji || !/[\u4E00-\u9FAF\u3400-\u4DBF]/.test(kanji)) return [];
-    const rows = await (async () => {
-      if (await this.isLoaded('jmdict')) {
-        try { return await dictDB.jmdict.filter(entry => (entry.kanji || []).some(k => k.includes(kanji) && [...k].length > 1)).limit(300).toArray(); }
-        catch { return []; }
-      }
-      const words = await this._loadBundledJmdict();
-      return words.filter(entry => (entry.kanji || []).some(k => k.includes(kanji) && [...k].length > 1)).slice(0, 300);
-    })();
+    
+    const words = await this._loadBundledJmdict();
+    const rows = [];
+    for (let i = 0; i < words.length; i++) {
+       const entry = words[i];
+       if ((entry.kanji || []).some(k => k.includes(kanji) && [...k].length > 1)) {
+          rows.push(entry);
+          if (rows.length >= 300) break;
+       }
+    }
 
     const seen = new Set();
     return rows
@@ -336,11 +293,12 @@ class DictionaryService {
   }
 
   async _loadBundledJmdict() {
-    if (this._bundledJmdict) return this._bundledJmdict;
+    if (this._jmdictCache) return this._jmdictCache;
     const response = await fetch(BUNDLED_PATHS.jmdict);
     if (!response.ok) return [];
     const data = await response.json();
-    this._bundledJmdict = (data.words || []).map(entry => ({
+    
+    this._jmdictCache = (data.words || []).map(entry => ({
       kanji: (entry.kanji || []).map(k => k.text),
       kana: (entry.kana || []).map(k => k.text),
       isCommon: (entry.kanji || []).some(k => k.common) || (entry.kana || []).some(k => k.common),
@@ -349,14 +307,21 @@ class DictionaryService {
         gloss: (s.gloss || []).map(g => g.text),
       })),
     }));
-    return this._bundledJmdict;
+
+    // Build the inverted index for O(1) lookups
+    this._jmdictIndex = new Map();
+    for (let i = 0; i < this._jmdictCache.length; i++) {
+       const entry = this._jmdictCache[i];
+       const keys = [...(entry.kanji || []), ...(entry.kana || [])];
+       for (const key of keys) {
+         if (!this._jmdictIndex.has(key)) this._jmdictIndex.set(key, []);
+         this._jmdictIndex.get(key).push(i);
+       }
+    }
+    
+    return this._jmdictCache;
   }
 
-  /**
-   * Yomiwa-style positional analyzer: find dictionary words around a tapped
-   * character, prefer entries containing the tap, longest/common first, then
-   * fall back to single-kanji lookup in the UI.
-   */
   async analyzeAt(text, charIndex = 0) {
     const chars = [...(text || '')];
     if (!chars.length) return null;
@@ -407,40 +372,19 @@ class DictionaryService {
     return candidates[0] || null;
   }
 
-  /**
-   * Look up a kanji character in KANJIDIC
-   */
   async lookupKanji(char) {
     if (!char) return null;
-    if (await this.isLoaded('kanjidic')) {
-      const cached = await dictDB.kanjidic.get(char);
-      const normalized = cached ? this._normalizeKanjidicEntry(cached) : null;
-      const hasReading = !!(normalized?.onyomi?.length || normalized?.kunyomi?.length);
-      const hasMeaning = !!normalized?.meanings?.length;
-      if (hasMeaning && hasReading) return normalized;
-
-      // Self-healing fallback for old IndexedDB rows created before the
-      // kanjidic2-en.json schema was mapped correctly, including rows that
-      // have meanings but lost onyomi/kunyomi readings.
-      const chars = await this._loadBundledKanjidic();
-      const fresh = chars.get(char) || null;
-      if (fresh) {
-        try { await dictDB.kanjidic.put(fresh); } catch {}
-        return fresh;
-      }
-      return normalized;
-    }
     const chars = await this._loadBundledKanjidic();
     return chars.get(char) || null;
   }
 
   async _loadBundledKanjidic() {
-    if (this._bundledKanjidic) return this._bundledKanjidic;
+    if (this._kanjidicCache) return this._kanjidicCache;
     const response = await fetch(BUNDLED_PATHS.kanjidic);
     if (!response.ok) return new Map();
     const data = await response.json();
-    this._bundledKanjidic = new Map((data.characters || []).map(entry => [entry.literal, this._normalizeKanjidicEntry(entry)]));
-    return this._bundledKanjidic;
+    this._kanjidicCache = new Map((data.characters || []).map(entry => [entry.literal, this._normalizeKanjidicEntry(entry)]));
+    return this._kanjidicCache;
   }
 
   _normalizeKanjidicEntry(entry) {

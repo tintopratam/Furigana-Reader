@@ -74,12 +74,22 @@ export async function renderSettingsPage(container) {
   const dictBtn = async (name, btnId, progId, fillId) => {
     page.querySelector(btnId).onclick = async () => {
       const loaded = await dictionaryService.isLoaded(name);
-      if (loaded) { await dictionaryService.disable(name); renderSettingsPage(container); }
-      else {
+      if (loaded) { 
+        await dictionaryService.disable(name); 
+        page.querySelector(btnId).textContent = 'Enable';
+        page.querySelector(btnId).classList.remove('danger');
+      } else {
         page.querySelector(progId).style.display = 'block';
         page.querySelector(btnId).disabled = true;
-        try { await dictionaryService.enable(name, p => { page.querySelector(fillId).style.width = p + '%'; }); } catch (e) { alert('Failed: ' + e.message); }
-        renderSettingsPage(container);
+        try { 
+          await dictionaryService.enable(name, p => { page.querySelector(fillId).style.width = p + '%'; }); 
+          page.querySelector(btnId).textContent = 'Disable';
+          page.querySelector(btnId).classList.add('danger');
+        } catch (e) { 
+          alert('Failed: ' + e.message); 
+        }
+        page.querySelector(progId).style.display = 'none';
+        page.querySelector(btnId).disabled = false;
       }
     };
   };
@@ -91,18 +101,22 @@ export async function renderSettingsPage(container) {
       const loaded = await dictionaryService.isLoaded(name);
       if (loaded) {
         await dictionaryService.disable(name);
-        renderSettingsPage(container);
+        page.querySelector(btnId).textContent = 'Enable';
+        page.querySelector(btnId).classList.remove('danger');
         return;
       }
       page.querySelector(progId).style.display = 'block';
       page.querySelector(btnId).disabled = true;
       try {
         await dictionaryService.enable(name, p => { page.querySelector(fillId).style.width = p + '%'; });
+        page.querySelector(btnId).textContent = 'Disable';
+        page.querySelector(btnId).classList.add('danger');
       } catch (e) {
         window.open(url, '_blank', 'noopener');
         alert(`Could not import ${label}: ${e.message}`);
       }
-      renderSettingsPage(container);
+      page.querySelector(progId).style.display = 'none';
+      page.querySelector(btnId).disabled = false;
     };
   };
   externalDownload('wordnet', '#wn-btn', '#wn-prog', '#wn-fill', 'https://bond-lab.github.io/wnja/data/wnjpn.db.gz', 'WordNet');
